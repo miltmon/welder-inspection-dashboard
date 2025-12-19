@@ -66,8 +66,7 @@ jobs:
       - name: Check deployment gates
         run: |
           cd benchmark_v1
-          python3 check_gates.py scorecard.json || exit 1
-        continue-on-error: false
+          python3 check_gates.py scorecard.json
       
       - name: Upload scorecard artifact
         uses: actions/upload-artifact@v4
@@ -77,6 +76,11 @@ jobs:
           path: benchmark_v1/scorecard.json
           retention-days: 30
       
+      - name: Install jq
+        if: always()
+        run: |
+          sudo apt-get update && sudo apt-get install -y jq
+      
       - name: Display scorecard summary
         if: always()
         run: |
@@ -85,12 +89,20 @@ jobs:
             echo "## 📊 Benchmark Results" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
             echo '```json' >> $GITHUB_STEP_SUMMARY
-            cat scorecard.json | jq '.scores' >> $GITHUB_STEP_SUMMARY || cat scorecard.json >> $GITHUB_STEP_SUMMARY
+            if command -v jq &> /dev/null; then
+              jq '.scores' scorecard.json >> $GITHUB_STEP_SUMMARY || cat scorecard.json >> $GITHUB_STEP_SUMMARY
+            else
+              cat scorecard.json >> $GITHUB_STEP_SUMMARY
+            fi
             echo '```' >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
             echo "### 🚦 Gate Status" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
-            cat scorecard.json | jq '.gate_status' >> $GITHUB_STEP_SUMMARY || echo "Gate status unavailable" >> $GITHUB_STEP_SUMMARY
+            if command -v jq &> /dev/null; then
+              jq '.gate_status' scorecard.json >> $GITHUB_STEP_SUMMARY || echo "Gate status unavailable" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "Gate status unavailable (jq not installed)" >> $GITHUB_STEP_SUMMARY
+            fi
           else
             echo "⚠️ Scorecard not generated - check logs" >> $GITHUB_STEP_SUMMARY
           fi
