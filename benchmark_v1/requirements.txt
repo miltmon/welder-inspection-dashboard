@@ -1,0 +1,14 @@
+# Benchmark System Requirements
+
+# Core dependencies
+# (Python standard library used primarily)
+
+# Optional: for advanced JSONPath parsing if needed
+# jsonpath-ng>=1.6.0
+
+# Optional: for better CLI output
+# rich>=13.0.0
+
+# Note: This benchmark system is designed to use minimal dependencies
+# Most functionality uses Python standard library only
+

@@ -1,0 +1,34 @@
+{
+  "benchmark_version": "v1",
+  "code": "AWS_D1_1",
+  "code_edition": "aws_d1_1_2020",
+  "dataset_version": "pilot_1.0",
+  "record_count": 100,
+  "description": "Pilot dataset for Miltmon Compliance Score — WPS/PQR compliance with near-miss and traceability targets",
+  "generated_utc": "2025-12-18T00:00:00Z",
+  "scoring_thresholds": {
+    "MCS_threshold": 0.85,
+    "traceability_floor_global": 0.80,
+    "traceability_floor_safety_critical": 0.90,
+    "near_miss_floor": 0.80,
+    "recall_floor_noncompliance": 0.90
+  },
+  "deployment_gates": {
+    "global_mcs_min": 0.85,
+    "near_miss_f1_min": 0.80,
+    "traceability_f1_min": 0.80,
+    "traceability_f1_safety_critical_min": 0.90,
+    "recall_noncompliance_min": 0.90
+  },
+  "canonical_schema": {
+    "field_naming": "JSONPath format",
+    "example": "$.wps.base_metals[0].thickness_mm",
+    "law": "All production outputs must conform to this schema"
+  },
+  "owner": {
+    "chief_compliance_architect": "Milton",
+    "dev_owner": "Backend Engineer",
+    "sme_owner": "AWS D1.1 Expert"
+  }
+}
+

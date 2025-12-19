@@ -1,0 +1,65 @@
+{
+  "edition": "aws_d1_1_2020",
+  "global": {
+    "F1_decision": 0.0,
+    "F1_clauses": 0.0,
+    "F1_violations": 1.0,
+    "F1_traceability": 0.0,
+    "recall_noncompliance": 0.0,
+    "MCS_base": 0.15,
+    "penalty_factor": 0.0,
+    "MCS": 0.0
+  },
+  "slices": {
+    "standard": {
+      "F1_decision": 0.0,
+      "F1_clauses": 0.0,
+      "F1_traceability": 0.0,
+      "MCS_slice": 0.0,
+      "total": 90,
+      "non_total": 27,
+      "recall_noncompliance": 0.0
+    },
+    "safety_critical": {
+      "F1_decision": 0.0,
+      "F1_clauses": 0.0,
+      "F1_traceability": 0.0,
+      "MCS_slice": 0.0,
+      "total": 10,
+      "non_total": 8,
+      "recall_noncompliance": 0.0
+    }
+  },
+  "per_clause": {
+    "AWS_D1_1_2020_5.8": {
+      "tp": 0,
+      "fp": 0,
+      "fn": 35,
+      "F1": 0.0,
+      "precision": 1.0,
+      "recall": 0.0
+    }
+  },
+  "counts": {
+    "tp_v": 0,
+    "fp_v": 0,
+    "fn_v": 0,
+    "fn_decision": 35,
+    "fn_trace": 35
+  },
+  "config_used": {
+    "MCS_weights": {
+      "decision": 0.45,
+      "clauses": 0.3,
+      "violations": 0.15,
+      "traceability": 0.1
+    },
+    "MCS_threshold": 0.85,
+    "TRACEABILITY_FLOOR_GLOBAL": 0.8,
+    "TRACEABILITY_FLOOR_SAFETY": 0.9,
+    "NEARMISS_FLOOR": 0.8,
+    "RECALL_FLOOR": 0.9,
+    "VALUE_REL_TOL": 0.02,
+    "VALUE_ABS_TOL": 1e-06
+  }
+}

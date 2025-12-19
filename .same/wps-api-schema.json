@@ -1,0 +1,794 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "WeldTrack™ Clause-Indexed WPS Generator API",
+    "version": "1.0.0",
+    "description": "RESTful API for generating auditable, code-correct WPS documents with machine-readable clause citations",
+    "contact": {
+      "name": "ClauseMesh API Support",
+      "email": "api@clausemesh.com"
+    }
+  },
+  "servers": [
+    {
+      "url": "https://api.weldtrack.com/v1",
+      "description": "Production server"
+    },
+    {
+      "url": "https://sandbox.weldtrack.com/v1",
+      "description": "Sandbox server"
+    }
+  ],
+  "components": {
+    "schemas": {
+      "ClauseReference": {
+        "type": "object",
+        "required": ["code", "clause", "id"],
+        "properties": {
+          "code": {
+            "type": "string",
+            "enum": ["ASME IX", "AWS D1.1", "AWS D1.5", "AWS D1.6"],
+            "description": "Welding code standard"
+          },
+          "clause": {
+            "type": "string",
+            "description": "Specific clause number (e.g., QW-305.4)",
+            "example": "QW-420"
+          },
+          "id": {
+            "type": "string",
+            "description": "Unique clause identifier",
+            "example": "ASME-IX:QW-420"
+          },
+          "text": {
+            "type": "string",
+            "description": "Clause text excerpt",
+            "example": "Grouping of Base Metals - P-Number 1"
+          },
+          "url": {
+            "type": "string",
+            "format": "uri",
+            "description": "Direct link to clause documentation",
+            "example": "https://codes.asme.org/section-ix/qw-420"
+          }
+        }
+      },
+      "WPSField": {
+        "type": "object",
+        "required": ["id", "name", "value", "clause"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Field identifier",
+            "example": "base_metal"
+          },
+          "name": {
+            "type": "string",
+            "description": "Human-readable field name",
+            "example": "Base Metal"
+          },
+          "value": {
+            "type": "string",
+            "description": "Field value",
+            "example": "ASTM A36"
+          },
+          "clause": {
+            "$ref": "#/components/schemas/ClauseReference"
+          },
+          "confidence": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1,
+            "description": "Auto-suggestion confidence (0-1)",
+            "example": 0.95
+          },
+          "userOverride": {
+            "type": "boolean",
+            "description": "Whether user manually overrode suggestion",
+            "example": false
+          }
+        }
+      },
+      "PQRMatch": {
+        "type": "object",
+        "required": ["pqr_id", "score", "reason"],
+        "properties": {
+          "pqr_id": {
+            "type": "string",
+            "example": "PQR-2024-045"
+          },
+          "score": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1,
+            "description": "Match confidence score",
+            "example": 0.92
+          },
+          "reason": {
+            "type": "string",
+            "description": "Human-readable match explanation",
+            "example": "F-Number 6 match, thickness overlap 1/4\" - 1\", positions 1G-4G qualified"
+          },
+          "coverage": {
+            "type": "object",
+            "properties": {
+              "essential_variables": {
+                "type": "array",
+                "items": { "type": "string" },
+                "example": ["base_metal", "filler_metal", "process", "position"]
+              },
+              "thickness_overlap": {
+                "type": "boolean",
+                "example": true
+              },
+              "position_coverage": {
+                "type": "array",
+                "items": { "type": "string" },
+                "example": ["1G", "2G", "3G", "4G"]
+              },
+              "f_number_match": {
+                "type": "boolean",
+                "example": true
+              }
+            }
+          },
+          "gaps": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Variables not covered by this PQR",
+            "example": ["Position 4G not qualified"]
+          }
+        }
+      },
+      "AuditSummary": {
+        "type": "object",
+        "properties": {
+          "code_compliance": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "object",
+              "properties": {
+                "compliant": { "type": "boolean" },
+                "clauses_referenced": { "type": "integer" },
+                "confidence_avg": { "type": "number" },
+                "manual_overrides": { "type": "integer" }
+              }
+            },
+            "example": {
+              "ASME_IX": {
+                "compliant": true,
+                "clauses_referenced": 15,
+                "confidence_avg": 0.94,
+                "manual_overrides": 0
+              }
+            }
+          },
+          "essential_variables_qualified": {
+            "type": "boolean",
+            "example": true
+          },
+          "pqr_coverage_percent": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100,
+            "example": 100
+          },
+          "auto_checks": {
+            "type": "object",
+            "properties": {
+              "passed": { "type": "integer", "example": 9 },
+              "failed": { "type": "integer", "example": 0 },
+              "warnings": { "type": "integer", "example": 1 }
+            }
+          },
+          "audit_score": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100,
+            "description": "Overall audit compliance score",
+            "example": 95
+          },
+          "ready_for_production": {
+            "type": "boolean",
+            "example": true
+          }
+        }
+      },
+      "WPSDocument": {
+        "type": "object",
+        "required": ["wps_id", "wps_number", "title", "revision", "status", "fields"],
+        "properties": {
+          "wps_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Unique document identifier"
+          },
+          "wps_number": {
+            "type": "string",
+            "description": "WPS number (can have multiple revisions)",
+            "example": "WPS-2025-0001"
+          },
+          "revision": {
+            "type": "integer",
+            "description": "Revision number",
+            "example": 2
+          },
+          "title": {
+            "type": "string",
+            "description": "WPS title",
+            "example": "Butt weld - GTAW - Stainless Steel 304"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["draft", "review", "approved", "superseded"],
+            "example": "approved"
+          },
+          "metadata": {
+            "type": "object",
+            "properties": {
+              "created_by": { "type": "string", "format": "email" },
+              "created_at": { "type": "string", "format": "date-time" },
+              "approved_by": { "type": "string", "format": "email" },
+              "approved_at": { "type": "string", "format": "date-time" },
+              "company": { "type": "string" },
+              "project": { "type": "string" }
+            }
+          },
+          "fields": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WPSField"
+            }
+          },
+          "clause_index": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ClauseReference"
+            }
+          },
+          "pqr_matches": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PQRMatch"
+            }
+          },
+          "audit_summary": {
+            "$ref": "#/components/schemas/AuditSummary"
+          }
+        }
+      }
+    },
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT"
+      },
+      "apiKey": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-API-Key"
+      }
+    }
+  },
+  "paths": {
+    "/wps": {
+      "post": {
+        "summary": "Create new WPS",
+        "tags": ["WPS"],
+        "security": [{ "bearerAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["title", "template"],
+                "properties": {
+                  "title": {
+                    "type": "string",
+                    "example": "Butt weld - SMAW - Carbon Steel"
+                  },
+                  "template": {
+                    "type": "string",
+                    "enum": ["butt_weld_smaw", "fillet_weld_gmaw", "pipe_weld_gtaw", "stainless_gtaw", "aluminum_gmaw"],
+                    "example": "butt_weld_smaw"
+                  },
+                  "fields": {
+                    "type": "object",
+                    "properties": {
+                      "base_metal": { "type": "string", "example": "ASTM A36" },
+                      "filler_metal": { "type": "string", "example": "E7018" },
+                      "process": { "type": "string", "example": "SMAW" },
+                      "position": { "type": "string", "example": "3G" }
+                    }
+                  }
+                }
+              },
+              "example": {
+                "title": "Butt weld - SMAW - Carbon Steel",
+                "template": "butt_weld_smaw",
+                "fields": {
+                  "base_metal": "ASTM A36",
+                  "filler_metal": "E7018",
+                  "process": "SMAW",
+                  "position": "3G",
+                  "thickness": "3/8 inch",
+                  "preheat": "50°F minimum"
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "WPS created successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WPSDocument"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "summary": "List all WPS documents",
+        "tags": ["WPS"],
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": ["draft", "review", "approved", "superseded"]
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 50
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of WPS documents",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/WPSDocument"
+                      }
+                    },
+                    "total": { "type": "integer" },
+                    "page": { "type": "integer" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/wps/{id}": {
+      "get": {
+        "summary": "Get WPS by ID",
+        "tags": ["WPS"],
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "WPS document",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WPSDocument"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "summary": "Update WPS",
+        "tags": ["WPS"],
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "title": { "type": "string" },
+                  "fields": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/components/schemas/WPSField"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "WPS updated successfully"
+          }
+        }
+      }
+    },
+    "/wps/{id}/export": {
+      "post": {
+        "summary": "Export WPS as PDF/JSON",
+        "tags": ["WPS"],
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "formats": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "enum": ["pdf", "json", "csv"]
+                    },
+                    "example": ["pdf", "json"]
+                  },
+                  "include_audit": {
+                    "type": "boolean",
+                    "default": true
+                  },
+                  "include_pqrs": {
+                    "type": "boolean",
+                    "default": false
+                  }
+                }
+              },
+              "example": {
+                "formats": ["pdf", "json"],
+                "include_audit": true,
+                "include_pqrs": true
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Export URLs",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "wps_pdf": {
+                      "type": "string",
+                      "format": "uri",
+                      "example": "https://storage.weldtrack.com/wps/WPS-2025-0001.pdf"
+                    },
+                    "wps_json": {
+                      "type": "object",
+                      "description": "Full WPS JSON document"
+                    },
+                    "expires_at": {
+                      "type": "string",
+                      "format": "date-time"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/wps/{id}/approve": {
+      "post": {
+        "summary": "Approve WPS with digital signature",
+        "tags": ["WPS"],
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["approver_name", "approver_cert_id"],
+                "properties": {
+                  "approver_name": {
+                    "type": "string",
+                    "example": "Jane Smith, CWI"
+                  },
+                  "approver_cert_id": {
+                    "type": "string",
+                    "example": "CWI-12345"
+                  },
+                  "comments": {
+                    "type": "string",
+                    "example": "Approved for production use"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "WPS approved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "example": "approved"
+                    },
+                    "signature_hash": {
+                      "type": "string",
+                      "description": "Cryptographic hash of approval"
+                    },
+                    "approved_at": {
+                      "type": "string",
+                      "format": "date-time"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/wps/{id}/match-pqr": {
+      "post": {
+        "summary": "Get PQR match recommendations",
+        "tags": ["WPS"],
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "limit": {
+                    "type": "integer",
+                    "default": 3,
+                    "description": "Number of matches to return"
+                  },
+                  "min_score": {
+                    "type": "number",
+                    "default": 0.7,
+                    "description": "Minimum match score (0-1)"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "PQR match recommendations",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "matches": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/PQRMatch"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/clauses/suggest": {
+      "post": {
+        "summary": "Get clause suggestions for a field",
+        "tags": ["Clauses"],
+        "security": [{ "bearerAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["field_name", "field_value"],
+                "properties": {
+                  "field_name": {
+                    "type": "string",
+                    "example": "base_metal"
+                  },
+                  "field_value": {
+                    "type": "string",
+                    "example": "ASTM A36"
+                  },
+                  "context": {
+                    "type": "object",
+                    "properties": {
+                      "code": {
+                        "type": "string",
+                        "enum": ["ASME IX", "AWS D1.1"],
+                        "example": "ASME IX"
+                      },
+                      "process": {
+                        "type": "string",
+                        "example": "SMAW"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Clause suggestions",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "suggestions": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "clause": {
+                            "$ref": "#/components/schemas/ClauseReference"
+                          },
+                          "confidence": {
+                            "type": "number",
+                            "example": 0.98
+                          },
+                          "reason": {
+                            "type": "string",
+                            "example": "A36 is carbon steel, P-Number 1 per QW-422"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/webhooks": {
+      "post": {
+        "summary": "Register a webhook endpoint",
+        "tags": ["Webhooks"],
+        "security": [{ "bearerAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["url", "events"],
+                "properties": {
+                  "url": {
+                    "type": "string",
+                    "format": "uri",
+                    "example": "https://api.yourapp.com/webhooks/weldtrack"
+                  },
+                  "events": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "enum": ["wps.created", "wps.updated", "wps.approved", "wps.superseded", "pqr.matched", "audit.alert"]
+                    },
+                    "example": ["wps.approved", "wps.created"]
+                  },
+                  "secret": {
+                    "type": "string",
+                    "description": "Secret for HMAC signature verification"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Webhook registered successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "webhook_id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "url": {
+                      "type": "string"
+                    },
+                    "events": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

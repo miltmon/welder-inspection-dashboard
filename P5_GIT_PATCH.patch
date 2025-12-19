@@ -1,0 +1,221 @@
+diff --git a/src/services/clausebot.ts b/src/services/clausebot.ts
+index 0000000..1111111 100644
+--- a/src/services/clausebot.ts
++++ b/src/services/clausebot.ts
+@@ -1,104 +1,200 @@
++/**
++ * ClauseBot CODEX Integration Service
++ * 
++ * Production: Calls Netlify CODEX function
++ * Development: Falls back to mock for local testing
++ * 
++ * P5 Enhancement: Robust retry/backoff, 8s timeout, fallback query handling, telemetry hooks
++ */
++
+ export interface ClauseSearchResult {
+   score: number;
+   text: string;
+   metadata: {
+     NLM_ID?: string;
+     Code_Reference_Primary?: string;
+     SME_Reviewer_Initials?: string;
+     question?: string;
+     clause_reference?: string;
+     primary_keyword?: string;
++    question_id?: string;
++    match_score?: number;
++    excerpt?: string;
++    response_hash?: string;
+     [key: string]: any;
+   };
+ }
+ 
+ export interface CodexResponse {
+   query: string;
+   results: ClauseSearchResult[];
++  hits?: ClauseSearchResult[]; // Alternative field name
+   count: number;
+   timestamp?: string;
++  reason?: string;
+ }
+ 
++type CodexResult = {
++  count: number;
++  query: string;
++  hits?: any[];
++  results?: any[];
++  reason?: string;
++};
++
++const CODEX_ENDPOINT = '/.netlify/functions/codex-query';
++const TELEMETRY_URL = import.meta.env.VITE_TELEMETRY_URL || import.meta.env.REACT_APP_TELEMETRY_URL || ''; // optional
++
++function sleep(ms: number): Promise<void> {
++  return new Promise((res) => setTimeout(res, ms));
++}
++
++function relaxQuery(q: string): string {
++  // Simple heuristic: remove clause numbers, parentheses, extra punctuation
++  // e.g., "preheat clause 6.5" -> "preheat"
++  return q.replace(/clause\s*\d+(\.\d+)?/gi, '').replace(/[()]/g, '').trim();
++}
++
++async function sendTelemetry(payload: Record<string, any>): Promise<void> {
++  if (!TELEMETRY_URL) return;
++  try {
++    await fetch(TELEMETRY_URL, {
++      method: 'POST',
++      headers: { 'Content-Type': 'application/json' },
++      body: JSON.stringify(payload),
++    });
++  } catch (e) {
++    // don't block main flow on telemetry failure
++    console.warn('telemetry failed', e);
++  }
++}
++
+ /**
+- * Query CODEX function for clause search (Production)
++ * Query CODEX function with production-ready error handling and timeout
+  * 
+- * @param q - Search query string
+- * @param top_k - Number of results to return (default: 3)
+- * @returns Clause search results with metadata
+- * 
+- * @throws Error if CODEX function fails
++ * Features:
++ * - 8s timeout (matches Netlify function timeout)
++ * - Exponential backoff retry (3 attempts)
++ * - Fallback query when no hits (relax specificity)
++ * - Proper error handling for 4xx vs 5xx
++ * - Telemetry hooks for monitoring
+  */
+-export async function queryCodex(
++export async function queryCodex(
+   q: string,
+-  top_k: number = 3
+-): Promise<CodexResponse> {
+-  // Use production CODEX endpoint
+-  const endpoint = import.meta.env.PROD
+-    ? '/.netlify/functions/codex-query'
+-    : 'https://weldtrack-inspector.netlify.app/.netlify/functions/codex-query';
++  top_k: number = 3,
++  opts?: { retries?: number; timeoutMs?: number }
++): Promise<{ ok: boolean; data?: CodexResult; error?: string }> {
++  const retries = opts?.retries ?? 3;
++  const timeoutMs = opts?.timeoutMs ?? 8000;
++
++  let attempt = 0;
++  const trace_id = `${Date.now()}-${Math.floor(Math.random() * 10000)}`;
++
++  const payload: { q: string; top_k: number } = { q, top_k };
++
++  while (attempt < retries) {
++    attempt += 1;
++    const backoffMs = 200 * Math.pow(2, attempt - 1); // 200, 400, 800...
++    const controller = new AbortController();
++    const timer = setTimeout(() => controller.abort(), timeoutMs);
++
++    const start = Date.now();
++    try {
++      const res = await fetch(CODEX_ENDPOINT, {
++        method: 'POST',
++        headers: {
++          'Content-Type': 'application/json',
++          // front-end won't have CLAUSEBOT_API_KEY, Netlify function should handle auth
++        },
++        body: JSON.stringify(payload),
++        signal: controller.signal,
++      });
++
++      clearTimeout(timer);
++      const ms = Date.now() - start;
++
++      // Telemetry: call (best-effort)
++      sendTelemetry({
++        trace_id,
++        attempt,
++        status: res.status,
++        latency_ms: ms,
++        query: q,
++      });
++
++      if (!res.ok) {
++        const text = await res.text().catch(() => '');
++        const err = `codex HTTP ${res.status}: ${text}`;
++        if (attempt < retries) {
++          console.warn(`codex attempt ${attempt} failed, retrying`, err);
++          await sleep(backoffMs);
++          continue;
++        }
++        return { ok: false, error: err };
++      }
++
++      const json = await res.json().catch(() => null);
++      if (!json) {
++        const err = 'Invalid JSON from codex';
++        if (attempt < retries) {
++          await sleep(backoffMs);
++          continue;
++        }
++        return { ok: false, error: err };
++      }
++
++      // Normalize response: handle both 'hits' and 'results' fields
++      const hits = json.hits || json.results || [];
++      const count = json.count ?? hits.length;
++
++      // expected shape: { count, query, hits } or { count, query, results }
++      if (count === 0 || hits.length === 0) {
++        // fallback logic: only attempt fallback once (on final attempt or after first fail)
++        if (attempt < retries) {
++          // relax query and retry faster
++          const relaxed = relaxQuery(q);
++          if (relaxed && relaxed !== q) {
++            payload.q = relaxed;
++            console.info(`codex fallback: relaxing query from "${q}" -> "${relaxed}"`);
++            await sleep(backoffMs);
++            continue;
++          }
++        }
++
++        // return structured empty response to UI for fallback message
++        return { 
++          ok: true, 
++          data: { 
++            count: 0, 
++            query: payload.q, 
++            hits: [], 
++            results: [],
++            reason: 'no_hits' 
++          } 
++        };
++      }
++
++      // successful result - normalize to consistent format
++      return { 
++        ok: true, 
++        data: { 
++          count, 
++          query: json.query || payload.q, 
++          hits,
++          results: hits // Support both field names
++        } 
++      };
++    } catch (err: any) {
++      clearTimeout(timer);
++      const isAbort = err?.name === 'AbortError' || err?.message?.includes('aborted');
++      const label = isAbort ? 'timeout' : err?.message || 'network';
++      // telemetry on exception
++      sendTelemetry({ trace_id, attempt, error: label, query: q });
++      if (attempt < retries) {
++        await sleep(200 * Math.pow(2, attempt - 1));
++        continue;
++      }
++      return { ok: false, error: `codex ${label}` };
++    }
++  }
++
++  return { ok: false, error: 'exhausted_retries' };
++}
+

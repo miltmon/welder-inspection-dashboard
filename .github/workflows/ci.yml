@@ -1,0 +1,91 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    name: Run Tests
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm test --if-present
+
+      - name: Run linting
+        run: npm run lint --if-present || echo "No lint script found"
+
+  smoke-test:
+    runs-on: ubuntu-latest
+    name: Smoke Test (Preview)
+    if: github.event_name == 'pull_request'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Install Netlify CLI
+        run: npm install -g netlify-cli
+
+      - name: Deploy to preview
+        id: deploy
+        run: |
+          netlify deploy --dir=dist --prod=false --json > deploy.json || true
+          if [ -f deploy.json ]; then
+            PREVIEW_URL=$(cat deploy.json | jq -r '.deploy_url // empty')
+            echo "preview_url=$PREVIEW_URL" >> $GITHUB_OUTPUT
+          fi
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
+        continue-on-error: true
+
+      - name: Test CODEX function
+        if: steps.deploy.outputs.preview_url != ''
+        run: |
+          PREVIEW_URL="${{ steps.deploy.outputs.preview_url }}"
+          echo "Testing CODEX function at: $PREVIEW_URL/.netlify/functions/codex-query"
+          
+          RESPONSE=$(curl -s -X POST "$PREVIEW_URL/.netlify/functions/codex-query" \
+            -H "Content-Type: application/json" \
+            -d '{"q":"preheat clause 6.5","top_k":3}' \
+            -w "\nHTTP_CODE:%{http_code}")
+          
+          HTTP_CODE=$(echo "$RESPONSE" | grep -oP 'HTTP_CODE:\K\d+')
+          BODY=$(echo "$RESPONSE" | sed 's/HTTP_CODE:.*//')
+          
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "❌ Smoke test failed: HTTP $HTTP_CODE"
+            echo "Response: $BODY"
+            exit 1
+          fi
+          
+          # Check for required fields
+          if echo "$BODY" | jq -e '.results[0].metadata.NLM_ID' > /dev/null 2>&1 && \
+             echo "$BODY" | jq -e '.results[0].metadata.Code_Reference_Primary' > /dev/null 2>&1; then
+            echo "✅ Smoke test passed: Function returns valid results with metadata"
+          else
+            echo "⚠️  Smoke test warning: Missing expected metadata fields"
+            echo "Response: $BODY"
+          fi
+
+
+

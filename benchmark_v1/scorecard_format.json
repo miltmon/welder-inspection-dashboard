@@ -1,0 +1,24 @@
+{
+  "edition":"aws_d1_1_2025",
+  "global": {
+    "F1_decision": 0.0,
+    "F1_clauses": 0.0,
+    "F1_traceability": 0.0,
+    "recall_noncompliance": 0.0,
+    "MCS": 0.0
+  },
+  "slices": {
+    "safety_critical": {
+      "F1_traceability": 0.0,
+      "MCS_slice": 0.0
+    },
+    "standard": {
+      "F1_traceability": 0.0,
+      "MCS_slice": 0.0
+    }
+  },
+  "per_clause": {},
+  "counts": {},
+  "config_used": {}
+}
+

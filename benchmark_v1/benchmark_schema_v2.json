@@ -1,0 +1,104 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Miltmon Procedure Package v2 (WPS+PQR) - AWS_D1_1 - 2025",
+  "type": "object",
+  "properties": {
+    "record_id": { "type": "string" },
+    "code": { "type": "string", "const": "AWS_D1_1" },
+    "code_edition": { "type": "string", "const": "aws_d1_1_2025" },
+    "manifest": {
+      "type":"object",
+      "properties": {
+        "dataset_version": { "type": "string" },
+        "generated_utc": { "type": "string", "format": "date-time" }
+      }
+    },
+    "wps": {
+      "type": "object",
+      "properties": {
+        "wps_id": {"type":"string"},
+        "process": {"type":"string"},
+        "position": {"type":"string"},
+        "base_metals": {
+          "type":"array",
+          "items": {
+            "type":"object",
+            "properties": {
+              "material": {"type":"string"},
+              "thickness_mm": {"type":"number"}
+            },
+            "required":["material","thickness_mm"]
+          }
+        },
+        "filler_metal": {"type":"string"},
+        "preheat_c": {"type":["number","null"]},
+        "interpass_temp_c": {"type":["number","null"]},
+        "pwht_applied": {"type":"boolean"},
+        "cvn_required": {"type":"boolean"}
+      },
+      "required":["wps_id","process","position","base_metals"]
+    },
+    "pqr": {
+      "type":"object",
+      "properties": {
+        "pqr_id": {"type":"string"},
+        "essential_variables": {"type":"object"},
+        "tests": {
+          "type":"array",
+          "items":{"type":"object"}
+        }
+      },
+      "required":["pqr_id","essential_variables"]
+    },
+    "metadata": {
+      "type":"object",
+      "properties": {
+        "authoring_org": {"type":["string","null"]},
+        "created_utc": {"type":"string","format":"date-time"},
+        "source": {"type":"string"}
+      }
+    },
+    "ground_truth": {
+      "type":"object",
+      "properties": {
+        "decision": {"type":"string","enum":["compliant","non_compliant"]},
+        "clause_ids": {"type":"array","items":{"type":"string"}},
+        "violation_tags": {"type":"array","items":{"type":"string"}},
+        "findings": {
+          "type":"array",
+          "items":{
+            "type":"object",
+            "properties": {
+              "clause_id": {"type":"string"},
+              "field_path": {"type":"string"},
+              "actual_value": {},
+              "expected_constraint": {"type":"string"},
+              "finding_status": {"type":"string","enum":["compliant","non_compliant"]},
+              "rule_id": {"type":"string"}
+            },
+            "required":["clause_id","field_path","actual_value","expected_constraint","finding_status"]
+          }
+        }
+      },
+      "required":["decision","clause_ids","findings"]
+    },
+    "adversarial_meta": {
+      "type":"object",
+      "properties": {
+        "is_near_miss": {"type":"boolean","default":false},
+        "is_edition_trap": {"type":"boolean","default":false},
+        "risk_tier": {"type":"string","enum":["standard","safety_critical"],"default":"standard"},
+        "notes": {"type":"string"}
+      }
+    },
+    "ethical_meta": {
+      "type":"object",
+      "properties":{
+        "contains_pii": {"type":"boolean","default":false},
+        "pii_masked": {"type":"boolean","default":true}
+      }
+    }
+  },
+  "required":["record_id","code","code_edition","wps","pqr","ground_truth"]
+}
+

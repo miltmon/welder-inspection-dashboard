@@ -1,0 +1,37 @@
+{
+  "$schema":"http://json-schema.org/draft-07/schema#",
+  "title":"Miltmon Prediction Schema v1",
+  "type":"object",
+  "properties":{
+    "record_id":{"type":"string"},
+    "model_id":{"type":"string"},
+    "predicted_at":{"type":"string","format":"date-time"},
+    "prediction":{
+      "type":"object",
+      "properties":{
+        "decision":{"type":"string","enum":["compliant","non_compliant"]},
+        "predicted_clause_ids":{"type":"array","items":{"type":"string"}},
+        "predicted_violation_tags":{"type":"array","items":{"type":"string"}},
+        "predicted_findings":{
+          "type":"array",
+          "items":{
+            "type":"object",
+            "properties":{
+              "clause_id":{"type":"string"},
+              "field_path":{"type":"string"},
+              "actual_value":{},
+              "expected_constraint":{"type":"string"},
+              "finding_status":{"type":"string","enum":["compliant","non_compliant"]},
+              "confidence_score":{"type":"number"}
+            },
+            "required":["clause_id","field_path","finding_status"]
+          }
+        },
+        "explanation_text":{"type":"string"}
+      },
+      "required":["decision","predicted_clause_ids","predicted_findings"]
+    }
+  },
+  "required":["record_id","model_id","predicted_at","prediction"]
+}
+
