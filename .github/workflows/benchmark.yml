@@ -1,0 +1,97 @@
+name: Compliance Benchmark
+
+on:
+  pull_request:
+    paths:
+      - '**/clausebot/**'
+      - '**/weldtrack/**'
+      - '**/benchmark_v1/**'
+      - '**/netlify/functions/codex-query.js'
+  push:
+    branches: [main]
+    paths:
+      - '**/clausebot/**'
+      - '**/weldtrack/**'
+      - '**/benchmark_v1/**'
+      - '**/netlify/functions/codex-query.js'
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    name: Miltmon Compliance Score Benchmark
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      
+      - name: Install dependencies
+        run: |
+          cd benchmark_v1
+          if [ -f requirements.txt ]; then
+            pip install -r requirements.txt
+          fi
+      
+      - name: Generate pilot dataset (if needed)
+        run: |
+          cd benchmark_v1
+          if [ ! -f sample_dataset_100.jsonl ]; then
+            python3 generate_pilot_dataset.py
+          fi
+      
+      - name: Generate predictions from ClauseBot
+        run: |
+          cd benchmark_v1
+          python3 generate_predictions.py \
+            --dataset sample_dataset_100.jsonl \
+            --output predictions_100.jsonl \
+            --endpoint https://weldtrack-inspector.netlify.app/.netlify/functions/codex-query
+        env:
+          CLAUSEBOT_API_KEY: ${{ secrets.CLAUSEBOT_API_KEY }}
+        continue-on-error: true
+      
+      - name: Run benchmark scorer (v2)
+        run: |
+          cd benchmark_v1
+          python3 miltmon_scorer_v2.py \
+            --dataset sample_dataset_100.jsonl \
+            --predictions predictions_100.jsonl \
+            --output scorecard.json
+        continue-on-error: true
+      
+      - name: Check deployment gates
+        run: |
+          cd benchmark_v1
+          python3 check_gates.py scorecard.json || exit 1
+        continue-on-error: false
+      
+      - name: Upload scorecard artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: benchmark-scorecard
+          path: benchmark_v1/scorecard.json
+          retention-days: 30
+      
+      - name: Display scorecard summary
+        if: always()
+        run: |
+          cd benchmark_v1
+          if [ -f scorecard.json ]; then
+            echo "## 📊 Benchmark Results" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo '```json' >> $GITHUB_STEP_SUMMARY
+            cat scorecard.json | jq '.scores' >> $GITHUB_STEP_SUMMARY || cat scorecard.json >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### 🚦 Gate Status" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            cat scorecard.json | jq '.gate_status' >> $GITHUB_STEP_SUMMARY || echo "Gate status unavailable" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "⚠️ Scorecard not generated - check logs" >> $GITHUB_STEP_SUMMARY
+          fi
+
